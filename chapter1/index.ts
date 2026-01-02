@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { createInterface } from "readline";
 import Anthropic from "@anthropic-ai/sdk";
+import { logger } from "../logger";
 
 const program = new Command();
 
@@ -11,21 +12,14 @@ program
     .action(async (options) => {
         const verbose = !!options.verbose;
 
-        // custom logger
-        const log = (message: string, ...args: any[]) => {
-            if (verbose) {
-                const now = new Date().toISOString().replace("T", " ").split(".")[0];
-                console.log(`${now} index.ts: ${message}`, ...args);
-            }
-        };
-
         if (verbose) {
-            log("verbose logging enabled");
+            logger.level = "debug";
+            logger.debug("verbose logging enabled");
         }
 
         const client = new Anthropic();
         if (verbose) {
-            log("Anthropic client created");
+            logger.debug("Anthropic client created");
         }
 
         const rl = createInterface({
@@ -35,15 +29,15 @@ program
         });
         const lineIterator = rl[Symbol.asyncIterator]();
 
-        const getUserMessage = async (): Promise<[string, boolean]> => {
+        const getUserMessage = async (): Promise<string | undefined> => {
             const result = await lineIterator.next();
             if (result.done) {
-                return ["", false];
+                return undefined;
             }
-            return [result.value, true];
+            return result.value;
         };
 
-        const agent = new Agent(client, getUserMessage, verbose, log);
+        const agent = new Agent(client, getUserMessage, verbose);
         await agent.run();
 
         rl.close();
@@ -51,20 +45,17 @@ program
 
 class Agent {
     private client: Anthropic;
-    private getUserMessage: () => Promise<[string, boolean]>;
+    private getUserMessage: () => Promise<string | undefined>;
     private verbose: boolean;
-    private log: (message: string, ...args: any[]) => void;
 
     constructor(
         client: Anthropic,
-        getUserMessage: () => Promise<[string, boolean]>,
-        verbose: boolean,
-        log: (message: string, ...args: any[]) => void
+        getUserMessage: () => Promise<string | undefined>,
+        verbose: boolean
     ) {
         this.client = client;
         this.getUserMessage = getUserMessage;
         this.verbose = verbose;
-        this.log = log;
     }
 
     async run() {
@@ -72,36 +63,36 @@ class Agent {
         const conversation: Anthropic.MessageParam[] = [];
 
         if (this.verbose) {
-            this.log("Conversation started");
+            logger.debug("Conversation started");
         }
 
-        console.log("Chat with Claude (use 'ctrl-c' to quit)");
+        logger.info("Chat with Claude (use 'ctrl-c' to quit)");
 
         while (true) {
             process.stdout.write("\x1b[94mYou\x1b[0m: ");
-            const [userInput, ok] = await this.getUserMessage();
-            if (!ok) {
+            const userInput = await this.getUserMessage();
+            if (userInput === undefined) {
                 if (this.verbose) {
-                    this.log("User input ended, breaking from chat loop");
+                    logger.debug("User input ended, breaking from chat loop");
                 }
                 break;
             }
 
             if (!userInput) {
                 if (this.verbose) {
-                    this.log("Skipping empty message");
+                    logger.debug("Skipping empty message");
                 }
                 continue;
             }
 
             if (this.verbose) {
-                this.log(`User input received: "${userInput}"`);
+                logger.debug({ userInput }, "User input received");
             }
 
             conversation.push({ role: "user", content: userInput });
 
             if (this.verbose) {
-                this.log(`Sending message to Claude, conversation length: ${conversation.length}`);
+                logger.debug({ conversationLength: conversation.length }, "Sending message to Claude");
             }
 
             try {
@@ -111,31 +102,31 @@ class Agent {
                 conversation.push({ role: "assistant", content: message.content });
 
                 if (this.verbose) {
-                    this.log(`Received response from Claude, conversation length: ${conversation.length}`);
+                    logger.debug({ conversationLength: conversation.length }, "Received response from Claude");
                 }
 
                 for (const block of message.content) {
                     if (block.type === "text") {
-                        console.log("\x1b[92mClaude\x1b[0m: ", block.text);
+                        logger.info(`\x1b[92mClaude\x1b[0m: ${block.text}`);
                     }
                 }
             } catch (err) {
                 if (this.verbose) {
-                    this.log(`Error during inference: ${err}`);
+                    logger.debug({ err }, "Error during inference");
                 }
-                console.error(err);
+                logger.error(err);
                 return;
             }
         }
 
         if (this.verbose) {
-            this.log("Conversation ended");
+            logger.debug("Conversation ended");
         }
     }
 
     async runInference(conversation: Anthropic.MessageParam[]) {
         if (this.verbose) {
-            this.log(`Making API call to Claude with model: claude-3-5-haiku-latest`);
+            logger.debug("Making API call to Claude with model: claude-3-5-haiku-latest");
         }
 
         try {
@@ -146,12 +137,12 @@ class Agent {
             });
 
             if (this.verbose) {
-                this.log("API call successful, response received");
+                logger.debug("API call successful, response received");
             }
             return message;
         } catch (err) {
             if (this.verbose) {
-                this.log(`API call failed: ${err}`);
+                logger.debug({ err }, "API call failed");
             }
             throw err;
         }

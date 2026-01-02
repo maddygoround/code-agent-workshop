@@ -2,7 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readdir } from "fs/promises";
 import * as path from "path";
 import { z } from 'zod';
-import { Result, wrapErr } from "../../utils";
 import { ToolDefinition } from "../types";
 
 const ListFilesInputSchema = z.object({
@@ -30,15 +29,10 @@ async function listFilesRecursive(dir: string, baseDir: string = ""): Promise<st
     return files;
 }
 
-const ListFiles = async (args: z.infer<typeof ListFilesInputSchema>): Result<string> => {
+const ListFiles = async (args: z.infer<typeof ListFilesInputSchema>): Promise<string> => {
     const dirPath = path.resolve(process.cwd(), args.path);
-
-    const [err, files] = await wrapErr(listFilesRecursive(dirPath));
-    if (err) {
-        return [err, undefined];
-    }
-
-    return [undefined, files.join("\n")];
+    const files = await listFilesRecursive(dirPath);
+    return files.join("\n");
 }
 
 function GenerateSchema<T extends z.ZodType>(v: T): Anthropic.Tool['input_schema'] {

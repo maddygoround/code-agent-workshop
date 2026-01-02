@@ -12,28 +12,34 @@ In this iteration, the agent's architecture begins to shift. We introduce a mech
 - **[tools/read.ts](file:///Users/m.rathod/Documents/Projects/code-agent-ts/chapter2/tools/read.ts)**: A self-contained execution script that demonstrates a specific tool implementation for reading files.
 
 ### Tool Definition & Schemas
-We started using **Zod** to define the expected input for each tool. This allows us to:
+We use **Zod** to define the expected input for each tool. This allows us to:
 1. Validate the model's output before execution.
 2. Automatically generate the JSON Schema that Claude needs to understand how to use the tool.
 
+### Error Handling & Logging
+This chapter adopts **idiomatic TypeScript error handling** using standard `try-catch` blocks. The agent is now resilient to filesystem errors (permissions, missing paths), which are reported back to the model as gracefully handled tool errors. 
+
+Logging is centralized via the shared `logger.ts` (using `pino`), enabling cleaner separation between debug traces and user output.
+
 ### The read_file Capability
-The first tool implemented was `read_file`. This required:
-- **Node.js `fs` interaction**: Safely reading file contents.
-- **Tool Mapping**: A registry that maps the model's requested tool name to the actual TypeScript function.
-- **Result Feedback**: Feeding the content of the file (or an error message) back into the conversation history so the model can process it.
+The first tool implemented was `read_file`. This involved:
+- **Node.js `fs/promises` interaction**: Asynchronously reading file contents.
+- **Tool Mapping**: A registry matching model requests to TypeScript functions.
+- **Result Feedback**: Feeding file content or handled errors back into the conversation history.
 
 ## Lessons Learned
-This chapter highlighted the importance of clear error messages. If a file doesn't exist, the agent must report this back to the model gracefully so it can try a different approach or inform the user.
+Clear error reporting and structured logging are vital. Centralized logging helps track the multi-turn tool execution flow without cluttering the main console output.
 
 ### Flow Diagram
 ```mermaid
 graph TD
     User([User]) -- "Prompt" --> Agent[Agent Loop]
+    Agent -- "Log" --> Logger[Shared Logger]
     Agent -- "Request" --> API[Anthropic API]
     API -- "Message" --> Agent
     Agent -- "isToolUse?" --> ToolDecision{Tool Use?}
-    ToolDecision -- "Yes" --> ToolExec[Tool Execution: read_file]
-    ToolExec -- "Result" --> Agent
+    ToolDecision -- "try/catch" --> ToolExec[Tool Execution: read_file]
+    ToolExec -- "Result/Error" --> Agent
     Agent -- "Request (with Result)" --> API
     ToolDecision -- "No" --> User
 ```

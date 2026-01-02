@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { readFile } from "fs/promises";
 import { createInterface } from "readline";
 import { z } from 'zod';
-import { Result, wrapErr } from "../../utils";
+import { logger } from "../../logger";
 
 const program = new Command();
 
@@ -14,21 +14,14 @@ program
     .action(async (options) => {
         const verbose = !!options.verbose;
 
-        // custom logger
-        const log = (message: string, ...args: any[]) => {
-            if (verbose) {
-                const now = new Date().toISOString().replace("T", " ").split(".")[0];
-                console.log(`${now} index.ts: ${message}`, ...args);
-            }
-        };
-
         if (verbose) {
-            log("verbose logging enabled");
+            logger.level = "debug";
+            logger.info("verbose logging enabled");
         }
 
         const client = new Anthropic();
         if (verbose) {
-            log("Anthropic client created");
+            logger.debug("Anthropic client created");
         }
 
         const rl = createInterface({
@@ -38,17 +31,16 @@ program
         });
         const lineIterator = rl[Symbol.asyncIterator]();
 
-        const getUserMessage = async (): Result<string> => {
-            const [err, result] = await wrapErr(lineIterator.next());
-            if (err) return [err, undefined];
+        const getUserMessage = async (): Promise<string> => {
+            const result = await lineIterator.next();
             if (result.done) {
-                return [new Error("EOF"), undefined];
+                throw new Error("EOF");
             }
-            return [undefined, result.value];
+            return result.value;
         };
 
         const tools = [ReadFileToolDefinition];
-        const agent = new Agent(client, getUserMessage, verbose, log, tools);
+        const agent = new Agent(client, getUserMessage, verbose, tools);
         await agent.run();
 
         rl.close();
@@ -59,9 +51,9 @@ const ReadFileInputSchema = z.object({
     path: z.string().describe("Path to the file to read"),
 });
 
-const ReadFile = async (args: z.infer<typeof ReadFileInputSchema>): Result<string> => {
-    console.log(`Reading file: ${args.path}`);
-    return await wrapErr(readFile(args.path, "utf-8"));
+const ReadFile = async (args: z.infer<typeof ReadFileInputSchema>): Promise<string> => {
+    logger.info({ path: args.path }, "Reading file");
+    return await readFile(args.path, "utf-8");
 }
 
 const ReadFileToolDefinition: ToolDefinition = {
@@ -75,29 +67,26 @@ const ReadFileToolDefinition: ToolDefinition = {
 
 interface ToolDefinition {
     Param: Anthropic.Tool
-    Execute: (args: any) => Result<string>
+    Execute: (args: any) => Promise<string>
 }
 
 
 
 class Agent {
     private client: Anthropic;
-    private getUserMessage: () => Result<string>;
+    private getUserMessage: () => Promise<string>;
     private verbose: boolean;
     private tools: ToolDefinition[];
-    private log: (message: string, ...args: any[]) => void;
 
     constructor(
         client: Anthropic,
-        getUserMessage: () => Result<string>,
+        getUserMessage: () => Promise<string>,
         verbose: boolean,
-        log: (message: string, ...args: any[]) => void,
         tools: ToolDefinition[]
     ) {
         this.client = client;
         this.getUserMessage = getUserMessage;
         this.verbose = verbose;
-        this.log = log;
         this.tools = tools;
     }
 
@@ -106,36 +95,38 @@ class Agent {
         const conversation: Anthropic.MessageParam[] = [];
 
         if (this.verbose) {
-            this.log("Conversation started");
+            logger.debug("Conversation started");
         }
 
-        console.log("Chat with Claude (use 'ctrl-c' to quit)");
+        logger.info("Chat with Claude (use 'ctrl-c' to quit)");
 
         while (true) {
             process.stdout.write("\x1b[94mYou\x1b[0m: ");
-            const [err, userInput] = await this.getUserMessage();
-            if (err || userInput === undefined) {
+            let userInput: string;
+            try {
+                userInput = await this.getUserMessage();
+            } catch (err) {
                 if (this.verbose) {
-                    this.log("User input ended, breaking from chat loop");
+                    logger.debug("User input ended, breaking from chat loop");
                 }
                 break;
             }
 
             if (!userInput) {
                 if (this.verbose) {
-                    this.log("Skipping empty message");
+                    logger.debug("Skipping empty message");
                 }
                 continue;
             }
 
             if (this.verbose) {
-                this.log(`User input received: "${userInput}"`);
+                logger.debug({ userInput }, "User input received");
             }
 
             conversation.push({ role: "user", content: userInput });
 
             if (this.verbose) {
-                this.log(`Sending message to Claude, conversation length: ${conversation.length}`);
+                logger.debug({ conversationLength: conversation.length }, "Sending message to Claude");
             }
 
             try {
@@ -148,51 +139,50 @@ class Agent {
                     let toolsResults: Anthropic.ContentBlockParam[] = [];
 
                     if (this.verbose) {
-                        this.log(`Received response from Claude, conversation length: ${conversation.length}`);
+                        logger.debug({ conversationLength: conversation.length }, "Received response from Claude");
                     }
 
                     for (const block of message.content) {
                         switch (block.type) {
                             case "text":
-                                console.log("\x1b[92mClaude\x1b[0m: ", block.text);
+                                logger.info(`\x1b[92mClaude\x1b[0m: ${block.text}`);
                                 break;
                             case "tool_use":
                                 hasToolUse = true;
                                 const toolToUse = block.name;
                                 let toolResult: string | undefined;
-                                let toolError: Error | undefined;
+                                let toolErrorMsg: string | undefined;
                                 let toolFound: boolean = false;
                                 for (const tool of this.tools) {
                                     if (tool.Param.name === toolToUse) {
                                         if (this.verbose) {
-                                            console.log(`Using tool: ${toolToUse}`);
+                                            logger.debug({ toolToUse }, "Using tool");
                                         }
-                                        [toolError, toolResult] = await tool.Execute(block.input);
-                                        if (toolError) {
-                                            console.log("\x1b[91merror\x1b[0m: ", toolError.message);
+                                        try {
+                                            toolResult = await tool.Execute(block.input);
+                                        } catch (err) {
+                                            toolErrorMsg = err instanceof Error ? err.message : String(err);
+                                            logger.error({ toolToUse, toolErrorMsg }, "Tool execution failed");
                                         }
 
-                                        if (this.verbose) {
-                                            if (toolError) {
-                                                console.log("Tool execution failed: ", toolError.message)
-                                            } else {
-                                                console.log("Tool execution successful, result length: ", toolResult!.length)
-                                            }
+                                        if (this.verbose && !toolErrorMsg) {
+                                            logger.debug({ toolToUse, resultLength: toolResult?.length }, "Tool execution successful");
                                         }
                                         toolFound = true;
                                         break;
                                     }
                                 }
                                 if (!toolFound) {
-                                    toolError = new Error(`Tool not found: ${toolToUse}`);
-                                    console.log("\x1b[91merror\x1b[0m: Tool not found: ", toolToUse);
+                                    toolErrorMsg = `Tool not found: ${toolToUse}`;
+                                    logger.error({ toolToUse }, "Tool not found");
                                 }
 
-                                if (toolError) {
-                                    toolsResults.push({ type: "tool_result", tool_use_id: block.id, content: toolError.message, is_error: true })
-                                } else {
-                                    toolsResults.push({ type: "tool_result", tool_use_id: block.id, content: toolResult, is_error: false })
-                                }
+                                toolsResults.push({
+                                    type: "tool_result",
+                                    tool_use_id: block.id,
+                                    content: toolErrorMsg || toolResult,
+                                    is_error: !!toolErrorMsg
+                                });
                         }
                     }
 
@@ -201,7 +191,7 @@ class Agent {
                     }
 
                     if (this.verbose) {
-                        this.log(`Sending tool results to Claude, count: ${toolsResults.length}`);
+                        logger.debug({ toolResultCount: toolsResults.length }, "Sending tool results to Claude");
                     }
 
                     conversation.push({ role: "user", content: toolsResults });
@@ -210,15 +200,15 @@ class Agent {
                 }
             } catch (err) {
                 if (this.verbose) {
-                    this.log(`Error during inference: ${err}`);
+                    logger.debug({ err }, "Error during inference");
                 }
-                console.error(err);
+                logger.error(err);
                 return;
             }
         }
 
         if (this.verbose) {
-            this.log("Conversation ended");
+            logger.debug("Conversation ended");
         }
     }
 
@@ -227,7 +217,7 @@ class Agent {
         const anthropicTools: Anthropic.ToolUnion[] = this.tools.map(tool => tool.Param);
 
         if (this.verbose) {
-            this.log(`Making API call to Claude with model: claude-3-5-haiku-latest`);
+            logger.debug("Making API call to Claude with model: claude-3-5-haiku-latest");
         }
 
         try {
@@ -239,23 +229,24 @@ class Agent {
             });
 
             if (this.verbose) {
-                this.log("API call successful, response received");
+                logger.debug("API call successful, response received");
             }
             return message;
         } catch (err) {
             if (this.verbose) {
-                this.log(`API call failed: ${err}`);
+                logger.debug({ err }, "API call failed");
             }
             throw err;
         }
     }
 }
 
-function GenerateSchema<T extends z.ZodType>(v: T): Anthropic.Tool['input_schema'] {
-    const schema = v.toJSONSchema()
+function GenerateSchema(v: z.ZodType): Anthropic.Tool['input_schema'] {
+    const schema = (v as any).toJSONSchema()
     return {
         type: "object",
         properties: schema.properties,
+        required: schema.required,
     }
 }
 

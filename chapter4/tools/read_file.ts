@@ -2,16 +2,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFile } from "fs/promises";
 import * as path from "path";
 import { z } from 'zod';
-import { Result, wrapErr } from "../../utils";
 import { ToolDefinition } from "../types";
 
 const ReadFileInputSchema = z.object({
     path: z.string().describe("Path to the file to read"),
 });
 
-const ReadFile = async (args: z.infer<typeof ReadFileInputSchema>): Result<string> => {
+const ReadFile = async (args: z.infer<typeof ReadFileInputSchema>): Promise<string> => {
     const filePath = path.resolve(process.cwd(), args.path);
-    return await wrapErr(readFile(filePath, "utf-8"));
+    return await readFile(filePath, "utf-8");
 }
 
 function GenerateSchema<T extends z.ZodType>(v: T): Anthropic.Tool['input_schema'] {

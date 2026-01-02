@@ -11,6 +11,7 @@ At this stage, we deliberately chose a set of low-level but powerful libraries t
 - **Commander**: Used to provide a professional CLI experience with flag support (e.g., `--verbose`).
 - **Readline**: Facilitated the interactive loop, allowing the agent to capture user prompts sequentially.
 - **Anthropic SDK**: The heart of the implementation, managing the API calls to `claude-3-5-haiku-latest`.
+- **Pino**: High-performance logging library for structured output.
 
 ## Architecture
 The agent in this chapter is **monolithic**. Everything from input handling to API management resides within a single file. 
@@ -24,6 +25,9 @@ The agent in this chapter is **monolithic**. Everything from input handling to A
 4. **Append**: Update the history with both the user's prompt and Claude's reply.
 5. **Repeat**: Loop back to the prompt.
 
+### Logging Pattern
+We use a shared `logger.ts` utility based on `pino`. This allows us to separate user-facing output from internal debugging information. Internal events are logged using `logger.debug` when the `--verbose` flag is active, while user messages are handled via `logger.info`.
+
 ### Flow Diagram
 ```mermaid
 graph TD
@@ -33,6 +37,7 @@ graph TD
     Agent -- "Response" --> User
     Agent -- "History.push" --> History[(Message History)]
     History -- "Context" --> Agent
+    Agent -- "Log" --> Logger[Shared Logger]
 ```
 
 ## How to Run

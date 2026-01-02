@@ -1,52 +1,53 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Command } from "commander";
-import { createInterface } from "readline";
-import { Result, wrapErr } from "../utils";
+import * as readline from "readline/promises";
 import { Agent } from "./agent";
 import { ListFilesToolDefinition } from "./tools/list_files";
 import { ReadFileToolDefinition } from "./tools/read_file";
+import { logger } from "../logger";
 
-const program = new Command();
+async function main() {
+    const program = new Command();
+    program
+        .option("-v, --verbose", "Enable verbose logging")
+        .parse(process.argv);
 
-program
-    .version("1.0.0")
-    .description("A modular agent framework (Chapter 3)")
-    .option("-v, --verbose", "verbose output")
-    .action(async (options) => {
-        const verbose = !!options.verbose;
+    const options = program.opts();
+    const verbose = !!options.verbose;
 
-        const log = (message: string, ...args: any[]) => {
-            if (verbose) {
-                const now = new Date().toISOString().replace("T", " ").split(".")[0];
-                console.log(`${now} [Chapter 3]: ${message}`, ...args);
-            }
-        };
+    if (verbose) {
+        logger.level = "debug";
+    }
 
-        const client = new Anthropic();
+    const client = new Anthropic();
 
-        const rl = createInterface({
-            input: process.stdin,
-            output: process.stdout,
-            terminal: false,
-        });
-        const lineIterator = rl[Symbol.asyncIterator]();
-
-        const getUserMessage = async (): Result<string> => {
-            const [err, result] = await wrapErr(lineIterator.next());
-            if (err) return [err, undefined];
-            const nextResult = result as IteratorResult<string>;
-            if (nextResult.done) {
-                return [new Error("EOF"), undefined];
-            }
-            return [undefined, nextResult.value];
-        };
-
-        const tools = [ListFilesToolDefinition, ReadFileToolDefinition];
-        const agent = new Agent(client, getUserMessage, tools, { verbose, log });
-
-        await agent.run();
-
-        rl.close();
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
     });
 
-program.parse(process.argv);
+    const getUserMessage = async (): Promise<string> => {
+        const input = await rl.question("");
+        if (input.toLowerCase() === "exit" || input.toLowerCase() === "quit") {
+            throw new Error("EOF");
+        }
+        return input;
+    };
+
+    const tools = [ListFilesToolDefinition, ReadFileToolDefinition];
+
+    const agent = new Agent(client, getUserMessage, tools, verbose);
+
+    try {
+        await agent.run();
+    } catch (err) {
+        logger.error(err);
+    } finally {
+        rl.close();
+    }
+}
+
+main().catch((err) => {
+    logger.error(err);
+    process.exit(1);
+});
