@@ -9,9 +9,9 @@ The project is structured into chapters, each representing a distinct iteration 
 ### Chapters
 
 - **[Chapter 1: The Inception](./chapter1)**: Establishing the fundamental message loop and CLI interaction.
-- **[Chapter 2: The Agent Primitive](./chapter2)**: Encapsulating the loop and state into a reusable `Agent` class.
-- **[Chapter 3: Task-Specific Agents](./chapter3)**: Designing specialized scripts for focused capabilities like file exploration.
-- **[Chapter 4: The Framework](./chapter4)**: A mature, tool-agnostic architecture with standardized patterns and extensibility.
+- **[Chapter 2: Introducing Tools](./chapter2)**: Adding the first tool (`read_file`) to enable file reading capabilities.
+- **[Chapter 3: Extending Tools](./chapter3)**: Extending the tool set with `list_files` following the same pattern.
+- **[Chapter 4: The Framework](./chapter4)**: Separating Agent from Tools into a modular, extensible architecture.
 
 ## Evolutionary Overview
 
@@ -30,31 +30,42 @@ graph TD
     end
 ```
 
-### Chapter 2: The Agent Primitive
+### Chapter 2: Introducing Tools
 ```mermaid
 graph TD
-    User([User]) -- "Prompt" --> Runner[index.ts]
-    Runner -- "Instantiate" --> Agent[Agent Instance]
-    Agent -- "Inference" --> API[Anthropic API]
-    API -- "Message" --> Agent
-    Agent -- "Response" --> User
-    
-    subgraph Logging Layer
-        Runner -- "Init Log" --> Logger["Shared Logger (Pino)"]
-        Agent -- "Trace State" --> Logger
-    end
-```
-
-### Chapter 3: Task-Specific Agents
-```mermaid
-graph TD
-    User([User]) -- "Prompt" --> Script[list_files.ts]
+    User([User]) -- "Prompt" --> Script[read_file.ts]
+    Script -- "Define Schema" --> Zod[Zod Schema]
+    Zod -- "Generate" --> API_Schema[JSON Schema]
     Script -- "Initialize" --> Agent[Agent Instance]
     Agent -- "Request (Schema + History)" --> API[Anthropic API]
     API -- "Message/Tool Use" --> Agent
-    Agent -- "Dispatch Tool" --> Tool[ListFiles Tool]
+    Agent -- "Dispatch Tool" --> Tool[ReadFile Tool]
     Tool -- "Execute" --> FS[File System]
     Tool -- "Result" --> Agent
+    Agent -- "Tool Result" --> API
+    Agent -- "Response" --> User
+
+    subgraph Logging Layer
+        Agent -- "debug: Tool Dispatch" --> Logger["Shared Logger (Pino)"]
+    end
+```
+
+### Chapter 3: Extending Tools
+```mermaid
+graph TD
+    User([User]) -- "Prompt" --> Script[Tool Script]
+    Script -- "Define Schema" --> Zod[Zod Schema]
+    Zod -- "Generate" --> API_Schema[JSON Schema]
+    Script -- "Initialize" --> Agent[Agent Instance]
+    Agent -- "Request (Schema + History)" --> API[Anthropic API]
+    API -- "Message/Tool Use" --> Agent
+    Agent -- "Dispatch" --> Tools{Tool Selection}
+    Tools -- "read_file" --> ReadFile[ReadFile Tool]
+    Tools -- "list_files" --> ListFiles[ListFiles Tool]
+    ReadFile -- "Execute" --> FS[File System]
+    ListFiles -- "Execute" --> FS
+    ReadFile -- "Result" --> Agent
+    ListFiles -- "Result" --> Agent
     Agent -- "Tool Result" --> API
     Agent -- "Response" --> User
 
