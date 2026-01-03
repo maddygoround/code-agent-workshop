@@ -20,6 +20,7 @@ You'll build 4 versions of a coding assistant, each adding more capabilities:
 2. **File Reader** — read code files
 3. **File Explorer** — list files in folders
 4. **Modular Framework** — clean, extensible architecture
+5. **Refined Toolkit** — powerful tools like bash, edit, and grep
 
 ```mermaid
 graph LR
@@ -27,18 +28,21 @@ graph LR
         A["Chapter 1<br/>Basic Chat"] --> B["Chapter 2<br/>+ File Reading"]
         B --> C["Chapter 3<br/>+ Directory Listing"]
         C --> D["Chapter 4<br/>Modular Framework"]
+        D --> E["Chapter 5<br/>Refined Toolkit"]
     end
 
     subgraph "Tool Capabilities"
         G["No Tools"] --> H["read_file"]
         H --> I["read_file<br/>list_files"]
         I --> J["read_file<br/>list_files<br/>(modular)"]
+        J --> K["bash, edit_file,<br/>grep (ripgrep)"]
     end
 
     A -.-> G
     B -.-> H
     C -.-> I
     D -.-> J
+    E -.-> K
 ```
 
 ## How It Works (Architecture)
@@ -169,6 +173,25 @@ bun run chapter4/index.ts
 - Clean entry point pattern
 - How to add new tools easily
 
+### Chapter 5: Refined Toolkit
+
+Expands the agent's capabilities with powerful search, edit, and shell tools.
+
+```bash
+bun run chapter5/index.ts
+```
+
+**Try it:**
+- "Find all occurrences of 'Claude' in this project"
+- "Fix the typo in Chapter 5 README"
+- "Run ls -la using the bash tool"
+
+**What you'll learn:**
+- Implementing advanced tools (bash, edit_file)
+- Integrating high-performance search with Ripgrep
+- Externalizing tool descriptions for better prompt management
+- Automatic dependency management (downloading Ripgrep binary)
+
 ## Chapter Overview
 
 | Chapter | Focus | Tools Available |
@@ -176,7 +199,8 @@ bun run chapter4/index.ts
 | 1 | API basics, conversation history | None |
 | 2 | Tool definition, tool use loop | `read_file` |
 | 3 | Multiple tools, error handling | `read_file`, `list_files` |
-| 4 | Modular architecture, extensibility | `read_file`, `list_files` (modular) |
+| 4 | Modular architecture, extensibility | `read_file`, `list_files` |
+| 5 | Advanced toolkit & infrastructure | `read_file`, `list_files`, `bash`, `edit_file`, `grep` |
 
 ## File Structure
 
@@ -196,6 +220,15 @@ code-agent-ts/
 │   └── tools/
 │       ├── read_file.ts   # File reading tool
 │       └── list_files.ts  # Directory listing tool
+├── chapter5/
+│   ├── index.ts           # Entry point
+│   ├── agent.ts           # Core Agent class (inherited)
+│   ├── ripgrep/           # Ripgrep downloader & utility
+│   └── tools/
+│       ├── bash_tool.ts   # Shell command tool
+│       ├── edit_tool.ts   # File editing tool
+│       ├── grep.ts        # Advanced search tool
+│       └── tool_description/ # Externalized descriptions
 ├── logger.ts              # Pino structured logging
 ├── console.ts             # Terminal output utilities
 └── README.md
